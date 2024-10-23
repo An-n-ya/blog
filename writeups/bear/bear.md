@@ -64,8 +64,12 @@ div.c:2:26: note: expanded from macro 'DODIV'
 至此我们知道了 Compilation Database 的作用，但这个文件如何生成呢？需要自己敲出来么？
 
 ### 生成Compilation Database
-手敲当然可以，但肯定是不现实的。像 `CMake` 这样的工具可以自动生成呢个 `compile_commands.json` 文件，而 `GNUMake` 这样的老古董是不能自动生成 Compilation Database 的，这时候我们就可以依靠 Bear 工具来自动生成编译数据库。
+手敲当然可以，但肯定是不现实的。像 `CMake` 这样的工具可以自动生成 `compile_commands.json` 文件，而 `GNUMake` 这样的老古董是不能自动生成 Compilation Database 的，这时候我们就可以依靠 Bear 工具来自动生成编译数据库。
 Bear 的使用方法很直接，如果原来的编译指令是 `make` , 那么只需要执行 `bear -- make` 便可以生成 `compile_commands.json` 了。
+
+::: warning
+TODO: 介绍 Compliation Database 在代码生成、依赖图等方面对编译系统的作用
+:::
 
 ## Bear 的原理
 Bear 的思路是这样的，既然 makefile 已经知道该如何编译整个项目了，那么 Bear 只需要**截取** makefile 调用的每一条编译指令，通过分析这些编译指令就可以构建出 `compile_commands.json` 了。
@@ -96,9 +100,73 @@ Intercepted command: /usr/bin/ld /usr/bin/ld -plugin ...
 注意到，gcc 指令调用了另外两个指令 `as` 和 `ld` ，分别用来编译汇编文件和链接。
 
 ## Bear 的实现
+
+### 从Bear的源码开始
+#### 下载并编译Bear项目
+1. 下载源码
+```sh
+> git clone https://github.com/rizsotto/Bear
+```
+2. 编译源码
+Bear依赖一些第三方库：`spdlog`, `fmt`, `gRPC`, `json`，如果系统中没有这些库的话，Bear会在构建过程中编译这些库，其中spdlog库的编译挺花时间的，如果你想节省编译时间，可以提前在系统中安装这些包。
+根据官方[编译文档](https://github.com/rizsotto/Bear/blob/master/INSTALL.md)使用下面的命令编译
+```sh
+cmake -DENABLE_UNIT_TESTS=OFF -DENABLE_FUNC_TESTS=OFF -DCMAKE_INSTALL_LIBDIR=lib/x86_64-linux-gnu build
+make all
+make install
+```
+为了方便后面用vim浏览代码，我们需要生成`compile_commands.json`（这也正是Bear项目存在的目的），`CMake`是默认支持生成`Compilation Database`的，只需要加上flag：`-DCMAKE_EXPORT_COMPILE_COMMANDS=1`即可，但如果你只是在上面的编译指令中加入这个flag，会发现没有生成`compile_commands.json`。为了了解具体如何生成`compile_commands.json`，我们需要深入Bear项目的编译系统。
+
+3. 生成 Bear 项目的`compile_commands.json`
+Bear项目根目录由以下部分组成：
+
+- `rust/`: Bear项目正在向Rust语言迁移，目前Bear项目还没有用到Rust代码，所以这里的内容我们可以忽略
+- `source`: Bear项目的主体
+    - `bear`: 1. 程序入口，`main.c`所在地。 2. 定义`libmain`中`Application`的子类。
+    - `citnames`: 解析`intercept`获取到的指令
+    - `intercept`: 用于截获编译指令
+    - `libflags`: 处理 bear 指令的 flags
+    - `libmain`: 定义入口函数的行为，后面会讲
+    - `libresult`: 定义类似rust的返回值类型`Result`
+    - `libshell`: 处理shell命令字符串
+    - `libsys`: 操作系统抽象层，定义了路径、进程、信号等抽象
+    - `CMakeLists.txt`: Bear项目主体的CMake文件
+- `test`: 测试集，可暂时忽略
+- `third_party`: 第三方依赖，由一些CMakeLists组成，用来告诉CMake如何下载、编译第三方库
+- `CMakeLists.txt`: 根目录下的CMake文件
+
+进入到Bear项目根目录下的`CMakeLists.txt`，这个文件的头几行检查并安装了必要的第三 方库，最重要的部分是[这里](https://github.com/rizsotto/Bear/blob/777954d4c2c1fc9053d885c28c9e15f903cc519a/CMakeLists.txt#L49-L90), 使用[`ExternalProject_Add`](https://cmake.org/cmake/help/latest/module/ExternalProject.html)命令构建Bear项目本身，`ExternalProject_Add`相当于额外执行了一次cmake，本身是不受原先cmake指令里flags的影响的，所以我们在根目录下设置cmake的`-DCMAKE_EXPORT_COMPILE_COMMANDS`是不会影响到BearSource项目的。
+解决方案很简单就是在`ExternalProject_Add`指令中加上`-DCMAKE_EXPORT_COMPILE_COMMANDS`指令即可：
+:::code-group
+```cmake [CMakeLists.txt]
+ExternalProject_Add(BearSource
+        SOURCE_DIR
+            "${CMAKE_CURRENT_SOURCE_DIR}/source"
+        DEPENDS
+            nlohmann_json_dependency
+            fmt_dependency
+            spdlog_dependency
+            grpc_dependency
+            googletest_dependency
+        CMAKE_ARGS
+            -DENABLE_UNIT_TESTS:BOOL=${ENABLE_UNIT_TESTS}
+            -DENABLE_MULTILIB:BOOL=${ENABLE_MULTILIB}
+            -DPKG_CONFIG_EXECUTABLE:PATH=${PKG_CONFIG_EXECUTABLE}
+        CMAKE_CACHE_ARGS
+            -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=1 // [!code ++]
+            -DCMAKE_PROJECT_VERSION:STRING=${CMAKE_PROJECT_VERSION}
+            -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
+            -DCMAKE_TOOLCHAIN_FILE:PATH=${CMAKE_TOOLCHAIN_FILE}
+            -DCMAKE_FIND_ROOT_PATH:PATH=${CMAKE_FIND_ROOT_PATH}
+...
+```
+:::
+更改完后再编译一次就能在`buiuld`目录中得到`compile_commands.json`了。
+
 Bear 中在[这里](https://github.com/rizsotto/Bear/blob/777954d4c2c1fc9053d885c28c9e15f903cc519a/source/intercept/source/report/libexec/lib.cc#L160)重载了 `execvpe` 系统函数。
 
 
 ## 参考资料
 - [Compilation databases for Clang-based tools](https://eli.thegreenplace.net/2014/05/21/compilation-databases-for-clang-based-tools)
+- [JSON Compliation Database Format Sepecification](https://clang.llvm.org/docs/JSONCompilationDatabase.html)
 
