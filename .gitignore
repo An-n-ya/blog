@@ -2,3 +2,6 @@ node_modules/
 dist/
 cache/
 .cache/
+**/bear/compile_commands.json
+*.plist
+*.so
