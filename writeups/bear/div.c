@@ -1,4 +1,3 @@
-// div.c
 #define DODIV(a, b) ((a) / (b))
 
 int test(int z) {

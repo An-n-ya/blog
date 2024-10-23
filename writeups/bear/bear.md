@@ -26,11 +26,12 @@ outline: deep
 ### 静态分析
 
 假如有以下代码：
-
+::: code-group
 <<< ./div.c{c:line-numbers{7}}
+:::
 
 注意到第 7 行有一个除零错误，编译器在编译期就应该知道变量 z 在第七行时等于 0，所以像 `clang-check` 这样的静态分析软件应该会对这段程序有所反映。但在我们执行了 `clang-check -analyze div.c --` 之后并没有任何警告。
-::: info
+::: tip
 在当前目录下没有Compilation Database的情况下使用 `cargo-check` 必须加上参数 `--` 。
 :::
 没有警告的原因是默认情况下 `FOO` 变量未定义，在编译的“宏展开阶段”中，第 7 行代码被忽略了，所以 `clang-check` 没有抱怨这段代码，我们可以加上 FOO 的定义试试:
@@ -79,7 +80,7 @@ Bear 的思路是这样的，既然 makefile 已经知道该如何编译整个�
 
 <<< ./hook_execvp.c
 
-:::info
+:::tip
 `dlsym` 是一个用于在运行时从共享库（动态链接库）中查找符号（通常是函数或全局变量）的函数，通常用于实现动态加载库的功能。该函数的第一个参数是 `dlopen` 函数返回的句柄，用来查找 `dlopen` 函数打开的共享库中的符号。这里使用的 `RTLD_NEXT` 是一个特殊句柄，用来查找当前库之后的库中的符号，该句柄通常用在动态库中的重载系统函数中。
 :::
 
@@ -101,8 +102,7 @@ Intercepted command: /usr/bin/ld /usr/bin/ld -plugin ...
 
 ## Bear 的实现
 
-### 从Bear的源码开始
-#### 下载并编译Bear项目
+### 下载并编译Bear项目
 1. 下载源码
 ```sh
 > git clone https://github.com/rizsotto/Bear
@@ -118,7 +118,11 @@ make install
 为了方便后面用vim浏览代码，我们需要生成`compile_commands.json`（这也正是Bear项目存在的目的），`CMake`是默认支持生成`Compilation Database`的，只需要加上flag：`-DCMAKE_EXPORT_COMPILE_COMMANDS=1`即可，但如果你只是在上面的编译指令中加入这个flag，会发现没有生成`compile_commands.json`。为了了解具体如何生成`compile_commands.json`，我们需要深入Bear项目的编译系统。
 
 3. 生成 Bear 项目的`compile_commands.json`
-Bear项目根目录由以下部分组成：
+Bear项目根目录由以下部分组成：除去和构建相关的gcc, cc1, as, collect2, ld, Bear 一共创建了三个进程：
+
+bear intercept: 创建intercept进程
+wrapper: 创建wrapper进程
+bear citnames: 创建citnames进程
 
 - `rust/`: Bear项目正在向Rust语言迁移，目前Bear项目还没有用到Rust代码，所以这里的内容我们可以忽略
 - `source`: Bear项目的主体
@@ -161,7 +165,46 @@ ExternalProject_Add(BearSource
 ...
 ```
 :::
-更改完后再编译一次就能在`buiuld`目录中得到`compile_commands.json`了。
+更改完后再编译一次就能在 `buiuld` 目录中得到 `compile_commands.json` 了。
+
+### Bear的架构
+Bear 的架构和上面的原理概述中介绍的差不多，如下图：
+![Bear项目的架构](./bear_project_structure.png)
+- Bear 主要由两部分组成：`intercept`和`citnames`
+- `intercept`负责截获编译指令
+- `citnames`是倒过来写的"semantic"，用来分析截获指令的语义
+- `intercept`和`citnames`通过 gRPC 沟通
+- `compile_commands.json`最终由`citnames`生成
+
+### 调试Bear
+在 Bear 中可以使用指令`Bear --verbose -- command` 获取调试信息。
+
+仍以上面的示例代码`hello.c`为例子，看看 Bear 输出了哪些信息：
+```sh
+> bear --verbose -- gcc -o hello hello.c
+```
+这条指令的输出很长，我把它放在[这里](https://github.com/An-n-ya/blog/blob/main/writeups/bear/log)。尽管长，我们可以先关注某一个方面，比如 Bear 新建了哪些进程。
+Bear 在新建进程的时候会输出`Process Spawned`，从上面的输出信息中我们可以找到下面的内容
+```sh
+[21:44:34.331863, br, 784636] Process spawned. [pid: 784637, command: ["/usr/local/bin/bear", "intercept", "--library", "/usr/local/lib/x86_64-linux-gnu/bear/libexec.so", "--wrapper", "/usr/local/lib/x86_64-linux-gnu/bear/wrapper", "--wrapper-dir", "/usr/local/lib/x86_64-linux-gnu/bear/wrapper.d", "--output", "compile_commands.events.json", "--verbose", "--", "gcc", "-o", "hello", "hello.c"]]
+[21:44:34.342143, br, 784637] Process spawned. [pid: 784645, command: ["/usr/local/lib/x86_64-linux-gnu/bear/wrapper", "--destination", "dns:///localhost:33063", "--verbose", "--execute", "/usr/bin/gcc", "--", "gcc", "-o", "hello", "hello.c"]]
+[21:44:34.358456, wr, 784645, ppid: 784637] Process spawned. [pid: 784653, command: ["gcc", "-o", "hello", "hello.c"]]
+[21:44:34.383993, wr, 784654, ppid: 784653] Process spawned. [pid: 784661, command: ["/usr/lib/gcc/x86_64-linux-gnu/11/cc1",...]]
+[21:44:34.419255, wr, 784664, ppid: 784653] Process spawned. [pid: 784674, command: ["as",...]]
+[21:44:34.433222, wr, 784675, ppid: 784653] Process spawned. [pid: 784686, command: ["/usr/lib/gcc/x86_64-linux-gnu/11/collect2",...]]
+[21:44:34.441378, wr, 784689, ppid: 784686] Process spawned. [pid: 784702, command: ["/usr/bin/ld",...]]
+[21:44:34.454682, br, 784636] Process spawned. [pid: 784714, command: ["/usr/local/bin/bear", "citnames", "--input", "compile_commands.events.json", "--output", "compile_commands.json", "--run-checks", "--verbose"]]
+```
+
+除去和构建相关的`gcc`, `cc1`, `as`, `collect2`, `ld`, Bear 一共创建了三个进程：
+- `bear intercept`: 创建intercept进程
+- `wrapper`: 创建wrapper进程
+- `bear citnames`: 创建citnames进程
+
+下面我们从 Bear 的 main 函数开始看看这三个进程是如何创建的，以及`LD_PRELOAD`是如何被写入环境变量的。
+
+### 从 `main` 函数开始
+
 
 Bear 中在[这里](https://github.com/rizsotto/Bear/blob/777954d4c2c1fc9053d885c28c9e15f903cc519a/source/intercept/source/report/libexec/lib.cc#L160)重载了 `execvpe` 系统函数。
 
