@@ -302,9 +302,127 @@ rust::Result<ps::CommandPtr> Intercept::command(const flags::Arguments &args, co
 
 ```
 - `capture_execution` 处理构建指令，在我们这里就是`gcc -o hello hello.c`
-- `Session::from` 构建`SessionLibrary`或`SessionWrapper`，其中前者使用LD_PRELOAD环境变量加载libexec.so截获编译指令，后者通过wrapper截获编译指令。
+- `Session::from` 根据配置构建`SessionLibrary`或`SessionWrapper`，前者使用LD_PRELOAD环境变量加载libexec.so截获编译指令，后者通过wrapper截获编译指令。
 - `Reporter::from` 构建读写`compile_commands.events.json`的handle。
 
+再看下intercept下的Command::execute
+```c++:line-numbers
+rust::Result<int> Command::execute() const
+{
+    // Create and start the gRPC server
+    int port = 0;
+    ic::SupervisorImpl supervisor(*session_);
+    ic::InterceptorImpl interceptor(*reporter_);
+    auto server = grpc::ServerBuilder()
+                        .RegisterService(&supervisor)
+                        .RegisterService(&interceptor)
+                        .AddListeningPort("dns:///localhost:0", grpc::InsecureServerCredentials(), &port)
+                        .BuildAndStart();
+
+    // Create session_locator URL for the services
+    auto session_locator = SessionLocator(fmt::format("dns:///localhost:{}", port));
+    spdlog::debug("Running gRPC server. {0}", session_locator);
+    // Execute the build command
+    auto result = session_->run(execution_, session_locator);
+    // Stop the gRPC server
+    spdlog::debug("Stopping gRPC server.");
+    server->Shutdown();
+    // Exit with the build status
+    return result;
+}
+```
+前16行是创建一个gRPC Server，关于gRPC的内容我们下一节再说，这一节重点关注上面代码的第17行，这一行调用了Session::run方法，run方法里边主要是调用了supervise方法，supervise方法是Session的一个虚方法，它有两个实现，分别来自`SessionLibrary`和`SessionWrapper`，前者就是基于LD_PRELOAD的（最后还是要使用wrapper往gRPC Server发送消息），后者直接构造Wrapper。
+
+我们先看前者，也就是`SessionLibrary`的实现，它的`supervise`方法实现如下：
+```c++
+sys::Process::Builder LibraryPreloadSession::supervise(const ic::Execution &execution) const
+{
+    auto builder = sys::Process::Builder(executor_)
+            .add_argument(executor_)
+            .add_argument(cmd::wrapper::FLAG_DESTINATION)
+            .add_argument(*session_locator_);
+
+    if (verbose_) {
+        builder.add_argument(cmd::wrapper::FLAG_VERBOSE);
+    }
+
+    return builder
+            .add_argument(cmd::wrapper::FLAG_EXECUTE)
+            .add_argument(execution.executable)
+            .add_argument(cmd::wrapper::FLAG_COMMAND)
+            .add_arguments(execution.arguments.begin(), execution.arguments.end())
+            .set_environment(update(execution.environment));
+}
+```
+这段代码构造了一个Prcess::Builder，这是准备又要创建一个进程了，创建什么进程呢？第一个参数就是要创建的进程，第一个参数为`executor_`，这是`LibraryPreloadSession`的成员变量，它的定义来自于该类的构造函数`LibraryPreloadSession::from`，在from函数中，`cmd::jintercept::FLAG_WRAPPER`flag的值被放入`executor_`中，也就是说，这里要新建的进程就是另一个wrapper。
+再回到`LibraryPreloadSession::supervise`方法中，考察后面传入了哪些参数，首先是`--destination`，这个参数的值是刚刚创建的gRPC Server的地址，然后是关于`execution`的信息，也就是编译指令的信息，比如它的命令名、参数、环境变量。这个execution是作为supervice的参数传进来的，而这个参数是一路从`Intercept::command`构造函数中传过来的，在本例中，我们正在处理子指令
+```
+/usr/local/bin/bear intercept --library /usr/local/lib/x86_64-linux-gnu/bear/libexec.so --wrapper /usr/local/lib/x86_64-linux-gnu/bear/wrapper --wrapper-dir /usr/local/lib/x86_64-linux-gnu/bear/wrapper.d --output compile_commands.events.json --verbose -- gcc -o hello hello.c
+```
+所以这里的参数就是`--`后面的内容，也就是`gcc -o hello hello.c`。
+
+还有一点需要注意，在`LibraryPreloadSession::supervise`的最后一行中调用了`udpate`方法，这个方法设置环境变量`LD_PRELOAD`的值为flag `--library` 的值，也就是设置环境变量`LD_PRELOAD=/usr/local/lib/x86_64-linux-gnu/bear/libexec.so`，这个libexec就是用来截获编译指令的动态库，和上面介绍的原理是吻合的。
+
+问题是为什么一定要新建一个wrapper进程呢？wrapper进程的作用它的名字所暗示的，它是对编译指令的包装，在执行编译指令前先用wrapper包装，wrapper会把编译指令信息通过gRPC传给collect。在后面对libexec的分析中我们会发现，libexec截获的每一条编译指令都会被改写成wrapper。
+
+在介绍libexec之前，我们先看看gRPC相关的代码，看下wrapper具体是怎么和collect沟通的。
+
+### gRPC相关
+Bear项目一共定义了两个服务：`Supervisor`和`Interceptor`，和若干数据类型
+
+- 数据类型 `Execution`
+该类型包括四个成员：
+    - executable 命令本身
+    - arguments 命令参数
+    - working_dir 目录
+    - environment 环境变量
+这个类型基本上包含了Compilation Database Entry所需的所有信息。
+
+- Supervisor 服务
+该服务只有一个接口：`Resolve`，该接口接受一个Execution类型的数据，输出一个Execution类型的数据
+在wrapper执行每条编译指令之前，它需要知道该怎么获取该编译指令的子进程（对于LD_PRELOAD方法来说，并不需要这个信息，但对于纯wrapper方法来说，这个信息是必要的），`SessionLibrary`和`SessionWrapper`提供了自己的resolve方法，`SessionLibrary`的resolve方法只是简单地把输入复制到输出，`SessionWrapper`的resolve方法之后再介绍。
+
+- Interceptor 服务
+该服务只有一个接口：`Register`，该接口接受Event类型，Event类型包含了关于编译指令的必要信息，比如Event类型包含了`Execution`类型，除此之外，它还包含进程号、父进程号、进程返回值、进程信号量。
+
+对于`Interceptor`服务，先看下接受端的代码，接受端定义在`InterceptorImpl::Register`中：
+```c++
+grpc::Status InterceptorImpl::Register(grpc::ServerContext*, const rpc::Event* request, google::protobuf::Empty*)
+{
+    reporter_.report(*request);
+    return ::grpc::Status::OK;
+}
+```
+reporter_的类型是`Reporter`，定义在`intercept/source/collect/Reporter.cc`，它的report代码定义如下：
+```c++
+void Reporter::report(const rpc::Event& event) {
+    const std::lock_guard<std::mutex> lock(mutex_);
+
+    database_->insert_event(event)
+            .on_error([](auto error) {
+                spdlog::warn("Writing event into database failed: {} Ignored.", error.what());
+            });
+}
+```
+其作用就是往`compile_commands.events.json`中写入event。database相关的实现在`intercept/source/collect/db`中，比较简单就不单独拿出来说了。
+
+再看看发送端的代码，发送端在`InterceptorClient::report`中，
+```c++
+rust::Result<int> InterceptorClient::report(const rpc::Event &event) {
+    spdlog::debug("gRPC call requested: supervise::Interceptor::Register");
+
+    grpc::ClientContext context;
+    google::protobuf::Empty response;
+    const grpc::Status status = interceptor_->Register(&context, event, &response);
+
+    spdlog::debug("gRPC call [Register] finished: {}", status.ok());
+    return status.ok()
+            ? rust::Result<int>(rust::Ok(0))
+            : rust::Result<int>(rust::Err(create_error(status)));
+}
+```
+这里调用了gRPC protobuf中定义的`Register`接口。
+report方法的调用链为`wr::Command::execute` -> `wr::EventReporter::report_start`(通过pid、execution构建event) -> `wr::InterceptorClient::report`
 
 ### libexec
 `source/intercept/source/report/libexec`这个文件夹中的内容会被编译成一个动态库，这个动态库的入口在[这里](https://github.com/rizsotto/Bear/blob/777954d4c2c1fc9053d885c28c9e15f903cc519a/source/intercept/source/report/libexec/lib.cc#L100-L115)，这里创建的全局变量`SESSION`是libexec自己的，这个类型有两个重要的成员`reporter`和`destination`，这里的reporter会被设置为默认值`/usr/local/lib/x86_64-linux-gnu/bear/wrapper`，而desitination会被设置为gRPC server。
@@ -313,8 +431,6 @@ rust::Result<ps::CommandPtr> Intercept::command(const flags::Arguments &args, co
 
 wrapper中有自己的gRPC Client与intercept 的gRPC Server交换信息。
 
-
-Bear 中在[这里](https://github.com/rizsotto/Bear/blob/777954d4c2c1fc9053d885c28c9e15f903cc519a/source/intercept/source/report/libexec/lib.cc#L160)重载了 `execvpe` 系统函数。
 
 
 ## 参考资料
