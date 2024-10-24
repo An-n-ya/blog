@@ -1,0 +1,14 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-c",
+      "-o",
+      "hello",
+      "hello.c"
+    ],
+    "directory": "/home/annya/blog/writeups/bear",
+    "file": "/home/annya/blog/writeups/bear/hello.c",
+    "output": "/home/annya/blog/writeups/bear/hello"
+  }
+]

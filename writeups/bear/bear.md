@@ -125,21 +125,21 @@ wrapper: 创建wrapper进程
 bear citnames: 创建citnames进程
 
 - `rust/`: Bear项目正在向Rust语言迁移，目前Bear项目还没有用到Rust代码，所以这里的内容我们可以忽略
-- `source`: Bear项目的主体
-    - `bear`: 1. 程序入口，`main.c`所在地。 2. 定义`libmain`中`Application`的子类。
-    - `citnames`: 解析`intercept`获取到的指令
-    - `intercept`: 用于截获编译指令
-    - `libflags`: 处理 bear 指令的 flags
-    - `libmain`: 定义入口函数的行为，后面会讲
-    - `libresult`: 定义类似rust的返回值类型`Result`
-    - `libshell`: 处理shell命令字符串
-    - `libsys`: 操作系统抽象层，定义了路径、进程、信号等抽象
+- `source/`: Bear项目的主体
+    - `bear/`: 1. 程序入口，`main.c`所在地。 2. 定义`libmain`中`Application`的子类。
+    - `citnames/`: 解析`intercept`获取到的指令
+    - `intercept/`: 用于截获编译指令
+    - `libflags/`: 处理 bear 指令的 flags
+    - `libmain/`: 定义入口函数的行为，后面会讲
+    - `libresult/`: 定义类似rust的返回值类型`Result`
+    - `libshell/`: 处理shell命令字符串
+    - `libsys/`: 操作系统抽象层，定义了路径、进程、信号等抽象
     - `CMakeLists.txt`: Bear项目主体的CMake文件
-- `test`: 测试集，可暂时忽略
-- `third_party`: 第三方依赖，由一些CMakeLists组成，用来告诉CMake如何下载、编译第三方库
+- `test/`: 测试集，可暂时忽略
+- `third_party/`: 第三方依赖，由一些CMakeLists组成，用来告诉CMake如何下载、编译第三方库
 - `CMakeLists.txt`: 根目录下的CMake文件
 
-进入到Bear项目根目录下的`CMakeLists.txt`，这个文件的头几行检查并安装了必要的第三 方库，最重要的部分是[这里](https://github.com/rizsotto/Bear/blob/777954d4c2c1fc9053d885c28c9e15f903cc519a/CMakeLists.txt#L49-L90), 使用[`ExternalProject_Add`](https://cmake.org/cmake/help/latest/module/ExternalProject.html)命令构建Bear项目本身，`ExternalProject_Add`相当于额外执行了一次cmake，本身是不受原先cmake指令里flags的影响的，所以我们在根目录下设置cmake的`-DCMAKE_EXPORT_COMPILE_COMMANDS`是不会影响到BearSource项目的。
+进入到Bear项目根目录下的`CMakeLists.txt`，这个文件的头几行检查并安装了必要的第三方库，最重要的部分是[这里](https://github.com/rizsotto/Bear/blob/777954d4c2c1fc9053d885c28c9e15f903cc519a/CMakeLists.txt#L49-L90)， 使用[`ExternalProject_Add`](https://cmake.org/cmake/help/latest/module/ExternalProject.html)命令构建Bear项目本身，`ExternalProject_Add`相当于额外执行了一次cmake，本身是不受原先cmake指令里flags的影响的，所以我们在根目录下设置cmake的`-DCMAKE_EXPORT_COMPILE_COMMANDS`是不会影响到BearSource项目的。
 解决方案很简单就是在`ExternalProject_Add`指令中加上`-DCMAKE_EXPORT_COMPILE_COMMANDS`指令即可：
 :::code-group
 ```cmake [CMakeLists.txt]
@@ -173,7 +173,8 @@ Bear 的架构和上面的原理概述中介绍的差不多，如下图：
 - Bear 主要由两部分组成：`intercept`和`citnames`
 - `intercept`负责截获编译指令
 - `citnames`是倒过来写的"semantic"，用来分析截获指令的语义
-- `intercept`和`citnames`通过 gRPC 沟通
+- `wrapper`和`collect`通过 gRPC 沟通
+- `compile_commands.events.json`这个中间文件保存着编译指令，由collect生成，之后由citnames读取
 - `compile_commands.json`最终由`citnames`生成
 
 ### 调试Bear
@@ -204,6 +205,113 @@ Bear 在新建进程的时候会输出`Process Spawned`，从上面的输出信�
 下面我们从 Bear 的 main 函数开始看看这三个进程是如何创建的，以及`LD_PRELOAD`是如何被写入环境变量的。
 
 ### 从 `main` 函数开始
+Bear 的入口在[这里](https://github.com/rizsotto/Bear/blob/777954d4c2c1fc9053d885c28c9e15f903cc519a/source/bear/main.cc#L23-L25)，这个 main 函数调用了 libmain 里的 main 函数，如下：
+```c++
+template <class App>
+int main(int argc, char* argv[], char* envp[]) {
+    App app;
+    auto ptr = reinterpret_cast<ps::Application*>(&app);
+
+    return ptr->command(argc,
+                        const_cast<const char **>(argv),
+                        const_cast<const char **>(envp))
+            .and_then<int>([](const ps::CommandPtr &cmd) {
+                return cmd->execute();
+            })
+            // print out the result of the run
+            .on_error([](auto error) {
+                spdlog::error("failed with: {}", error.what());
+            })
+            .on_success([](auto status_code) {
+                spdlog::debug("succeeded with: {}", status_code);
+            })
+            // set the return code from error
+            .unwrap_or(EXIT_FAILURE);
+}
+```
+这是一个泛型函数，在刚刚的调用中泛型参数是`bear::Application`，这个类型定义在`$BEAR_PROJECT/source/bear/source/Application.cc`中，我们先来看看上面的这段代码的含义。这段代码看起来很像[函数式语言](https://en.wikipedia.org/wiki/Functional_programming)，`ptr->command`,`and_then`,`on_error`这三个函数的返回值都是rust::Result，这个类型定义在`libresult`中。这种函数式编程的模式看起来很复杂，其实只要熟悉了就会觉得很清晰，我们在阅读这段代码的时候可以只关注成功情况忽略错误情况，下面我把这段代码调用过程（只包含成功情况）用过程式的方式写出来：
+```:line-numbers
+ps::Application::command()[virtual]
+    ps::ApplicationFromArgs::command()
+        ps::ApplicationFromArgs::parse()[virtual]
+            bear::Application::parse()
+        ps::ApplicationFromArgs::command()[virtual]
+            bear::Application::command()
+    Command::execute()
+```
+其中第4行`bear::Application::parse()`函数设置了一些默认参数，这些默认参数会在新建进程的时候使用，举个例子，在上面我们分析了Bear启动后创建了哪些进程，关注启动的第一个进程的参数：
+
+`[21:44:34.331863, br, 784636] Process spawned. [pid: 784637, command: ["/usr/local/bin/bear", "intercept", "--library", "/usr/local/lib/x86_64-linux-gnu/bear/libexec.so", "--wrapper", "/usr/local/lib/x86_64-linux-gnu/bear/wrapper", "--wrapper-dir", "/usr/local/lib/x86_64-linux-gnu/bear/wrapper.d", "--output", "compile_commands.events.json", "--verbose", "--", "gcc", "-o", "hello", "hello.c"]]`
+
+像`--library`, `--wrapper`, `--wrapper-dir`, `--output` 这些flags的参数都是通过`bear::Application::parse()`函数设置的，由于我们执行`bear`指令的时候没有指定这些flags的值，所以这些值都被设置为默认值，这些默认值的模板定义在[source/config.h.in](https://github.com/rizsotto/Bear/blob/master/source/config.h.in)，最终的默认值将会被定义在一个由编译系统生成的config.h文件中，它位于`$BUILD_DIR/subprojects/Build/BearSource/config.h`。以`--library`flag为例，它的默认值由`cmd::library::DEFAULT_PATH`确定，由于我的系统是Linux，所以它的值是`/usr/local/lib/x86_64-linux-gnu/bear/libexec.so`，这和上面的调试信息中的参数是吻合的。
+
+### `command` 指令
+上面的分析中我们知道了默认参数是如何被设置的，我们还知道了在执行完`parse`指令后马上执行了`command`指令，这个指令作用是什么呢？
+之前已经提到过Bear在启动后会启动3个进程，这三个进程的启动命令就是由这里的command指令定义的。
+
+在`bear::Application::command`方法中最重要的工作是下面的几行代码：
+```c++
+auto intercept = prepare_intercept(args, environment, commands);
+auto citnames = prepare_citnames(args, environment, commands);
+
+return rust::merge(intercept, citnames)
+    .map<ps::CommandPtr>([&commands](const auto& tuple) {
+        const auto& [intercept, citnames] = tuple;
+
+        return std::make_unique<Command>(intercept, citnames, commands);
+    });
+```
+`intercept`和`citnames`的类型都是`sys::process::Builder`，这个类型是Bear对创建进程的抽象（不同操作系统有不同的创建进程的方式）。上面的段代码最后返回了一个`Command`，这个Command包含了`intercept`和`citnames`两个成员。
+这个Command最终会执行`execute`方法，这个方法定义如下:
+```c++
+[[nodiscard]] rust::Result<int> Command::execute() const
+{
+	auto result = ::execute(intercept_, "intercept");
+
+	std::error_code error_code;
+	if (fs::exists(output_, error_code)) {
+		::execute(citnames_, "citnames");
+		fs::remove(output_, error_code);
+	}
+	return result;
+}
+
+```
+`::execute`中调用了`builder.sapwn`来新建进程，这段代码的含义就是创建intercept进程，如果`compile_commands.events.json`存在的话，就新建`citnames`进程，在citnames进程执行结束后就删除`compile_commands.events.json`。
+
+到这里我们明白了Bear会首先启动intercept，如果intercept有输出`compile_commands.events.json`（这个文件保存着编译指令）的话，就启动`citnames`进程分析截获的编译指令并生成`compile_commands.json`。
+
+那么为什么在调试信息中还创建了一个名叫"wrapper"的进程呢？
+
+### intercept子指令
+上面提到`Application::command`会创建两个builder: `intercept`和`citnames`，并执行它们，执行它们就相当于执行了`bear intercept ...` 和 `bear citnames ...` 这两个子指令。这两个子指令在`Application::command`中被处理，最终会调用`Intercept::command`和`Citnames::command`的方法生成它们各自的CommandPtr，并执行各自的`execute`方法。
+
+下面看看Intercept::command方法的实现
+```c++
+rust::Result<ps::CommandPtr> Intercept::command(const flags::Arguments &args, const char **envp) const {
+   const auto execution = capture_execution(args, sys::env::from(envp));
+   const auto session = Session::from(args, envp);
+   const auto reporter = Reporter::from(args);
+
+   return rust::merge(execution, session, reporter)
+           .map<ps::CommandPtr>([](auto tuple) {
+               const auto&[execution, session, reporter] = tuple;
+               return std::make_unique<Command>(execution, session, reporter);
+           });
+    }
+
+```
+- `capture_execution` 处理构建指令，在我们这里就是`gcc -o hello hello.c`
+- `Session::from` 构建`SessionLibrary`或`SessionWrapper`，其中前者使用LD_PRELOAD环境变量加载libexec.so截获编译指令，后者通过wrapper截获编译指令。
+- `Reporter::from` 构建读写`compile_commands.events.json`的handle。
+
+
+### libexec
+`source/intercept/source/report/libexec`这个文件夹中的内容会被编译成一个动态库，这个动态库的入口在[这里](https://github.com/rizsotto/Bear/blob/777954d4c2c1fc9053d885c28c9e15f903cc519a/source/intercept/source/report/libexec/lib.cc#L100-L115)，这里创建的全局变量`SESSION`是libexec自己的，这个类型有两个重要的成员`reporter`和`destination`，这里的reporter会被设置为默认值`/usr/local/lib/x86_64-linux-gnu/bear/wrapper`，而desitination会被设置为gRPC server。
+
+当libexec截获到指令时，会使用全局变量`SESSION`构建一条指令，指令的path是就是reporter，也就是`wrapper`，截获到的指令会作为参数传入给wrapper。
+
+wrapper中有自己的gRPC Client与intercept 的gRPC Server交换信息。
 
 
 Bear 中在[这里](https://github.com/rizsotto/Bear/blob/777954d4c2c1fc9053d885c28c9e15f903cc519a/source/intercept/source/report/libexec/lib.cc#L160)重载了 `execvpe` 系统函数。
