@@ -90,7 +90,7 @@ export default defineConfig({
         },
 ...
 ```
-14 行调用了一个 async 函数 `getPosts`。这个函数返回的对象保存在`themeConfig.posts`中，根据[vitepress文档](
+14 行调用了一个 async 函数 `getPosts`。这个函数返回的对象保存在`themeConfig.posts`中，根据 [vitepress文档](
 ) 中关于 useState 的说明，这个 posts 可以通过 `useState().theme.value.posts` 访问到，`getPosts`函数中会创建关于项目中所有文章的元信息以便在运行时访问，这个信息对于展示过往文章列表尤其重要。`ghetPosts` 函数的实现如下：
 ```js:line-numbers{10}
 import { globby } from 'globby'
@@ -152,5 +152,34 @@ const posts = theme.value.posts.slice(${pageSize * (i - 1)},${pageSize * i})
     await fs.move(paths + '/page_1.md', paths + '/index.md', { overwrite: true })
 }
 ```
-该函数的 7-20 行便是所要生成的文档的模板，这个模板最终会保存到 `md` 后缀的文件中，而 vitepress 中的 markdown 文件是支持使用 vue 的，所以这里的模板虽然是用来生成 markdown 的，但看起来更像是 vue 的模板。这段模板调用了 `Page` 这个 Component，我们在后文中介绍。第 26 行将第一个分页重命名为 `index.md` 作为主页，
+该函数的 7-20 行便是所要生成的文档的模板，这个模板最终会保存到 `md` 后缀的文件中，而 vitepress 中的 markdown 文件是支持使用 vue 的，所以这里的模板虽然是用来生成 markdown 的，但看起来更像是 vue 的模板。第 17 行使用 `useData` 获取了上文中提到的 posts 信息，并将这个信息传递给了 `Page` 这个 Component，我们将在后文中介绍该组件。第 26 行将第一个分页重命名为 `index.md` 作为主页，
 
+这个主页的内容很简单，只包括一个 `Page` Component，这个组件定义了主页的主体，而主页的导航栏则由 vitepress 生成。
+
+下面来看看 Page 组件的实现：
+```vue
+<template>
+    <div v-for="(article, index) in posts" :key="index" class="post-list">
+        <div class="post-header">
+            <div class="post-title">
+                <a :href="withBase(article.regularPath)"> {{ article.frontMatter.title }}</a>
+            </div>
+        </div>
+        <p class="describe" v-html="article.frontMatter.description"></p>
+        <div class='post-info'>
+            {{ article.frontMatter.date }} <span v-for="item in article.frontMatter.tags"><a :href="withBase(`/pages/tags.html?tag=${item}`)"> {{ item }}</a></span>
+        </div>
+    </div>
+
+    <div class="pagination">
+        <a
+            class="link"
+            :class="{ active: pageCurrent === i }"
+            v-for="i in pagesNum"
+            :key="i"
+            :href="withBase(i === 1 ? '/index.html' : `/page_${i}.html`)"
+        >{{ i }}</a>
+    </div>
+</template>
+```
+这段代码可以分成两部分，第一部分渲染传递进来的文章列表，将文章信息（比如文章题目、tag、时间）渲染出来，第二部分是分页器，每页对应一个按钮，点击按钮可以跳转到之前生成的`poage_{i}.md`文档，也就是其他分页。
