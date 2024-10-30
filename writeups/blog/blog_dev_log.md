@@ -183,3 +183,178 @@ const posts = theme.value.posts.slice(${pageSize * (i - 1)},${pageSize * i})
 </template>
 ```
 这段代码可以分成两部分，第一部分渲染传递进来的文章列表，将文章信息（比如文章题目、tag、时间）渲染出来，第二部分是分页器，每页对应一个按钮，点击按钮可以跳转到之前生成的`poage_{i}.md`文档，也就是其他分页。
+
+### sugar-blog
+[sugar-blog](https://sugarat.top/)的主页是这样子的：
+
+![sugar-blog的主页](./sugar-blog-home.png)
+
+对我来说元素过于丰富，不过正因为它有很多元素，这个 blog 是用来学习如何扩展 vitepress 的好例子。
+
+sugar-blog 是 [monorepo](https://www.wikiwand.com/en/articles/Monorepo) 结构，它由若干功能独立的模块组成，所有的模块都放在一个 git 仓库下。具体来说，它包含了以下内容：
+
+* [blogpress](./packages/blogpress/)：博客内容本身
+* [@sugarat/theme](./packages/theme/)：博客分离出的通用 `VitePress` 主题
+* [@sugarat/theme-shared](./packages/shared/)：`VitePress` 主题相关的工具方法
+* [@sugarat/create-theme](./packages/create-theme/)：用于快速创建和作者一样风格的博客
+* VitePress 插件相关：
+  * [vitepress-plugin-pagefind](./packages/vitepress-plugin-pagefind/)：基于 pagefind 实现的 `VitePress` 离线全文搜索支持插件
+  * [vitepress-plugin-rss](./packages/vitepress-plugin-rss/)：基于 feed 实现的 `VitePress` RSS 支持插件
+  * [vitepress-plugin-51la](./packages/vitepress-plugin-51la/)：为 `VitePress` 站点引入 [51.la](https://v6.51.la/) 的网站数据统计能力。
+  * [vitepress-plugin-announcement](./packages/vitepress-plugin-announcement/)：为 `VitePress` 创建一个全局公告窗口。
+  * [vitepress-plugin-slot-inject-template](./template/vitepress-plugin-slot-inject-template/)：`VitePress` 插件开发模板。
+
+第一个目录 `blogpress` 是作者自己的博客目录，我们不用去看里边的内容。
+
+这里先介绍使用 sugar-blog 的方法：
+1. 调用 sugar-blog 提供的函数 `getThemeConfig` 传入该 theme 相关的参数，得到一个 theme 对象
+```ts
+import { getThemeConfig } from '@sugarat/theme/node'
+const blogTheme = getThemeConfig({
+    ...
+});
+```
+2. 根据 vitepress 文档中关于[自定义theme](https://vitepress.dev/guide/custom-theme#consuming-a-custom-theme) 的说明，将该 theme 对象传入 vitepress 的 extends 属性：
+```ts:line-numbers{6}
+// .vitepress/config.ts
+import baseConfig from 'awesome-vitepress-theme/config'
+
+export default {
+  // extend theme base config (if needed)
+  extends: baseConfig
+}
+```
+
+sugar-blog 是通过添加 vite plugin 的方式扩展 vitepress 的功能的，这些 plugin 正是在上文的 `getThemeConfig` 中设置的：
+```ts:line-numbers{16}
+// packages/theme/src/node.ts
+export function getThemeConfig(cfg: Partial<Theme.BlogConfig> = {}) {
+  // 配置校验
+  checkConfig(cfg)
+
+  // 默认不开启 markdown 图表，会明显影响构建速度
+  cfg.mermaid = cfg.mermaid ?? false
+
+  // 文章数据
+  const pagesData: Theme.PageData[] = []
+  const extraVPConfig: any = {
+    vite: {}
+  }
+
+  // 获取要加载的vite插件
+  const vitePlugins = getVitePlugins(cfg)
+  // 注册Vite插件
+  registerVitePlugins(extraVPConfig, vitePlugins)
+...
+```
+由于本节主要关心主页的实现，所以我们重点看是哪个插件提供了过往文章信息。上面第 16 行的 getVitePlugins 函数中添加了许多 plugin，其中的 `providePageData` plugin 就是提供过往文章信息的插件：
+```ts
+export function providePageData(cfg: Partial<Theme.BlogConfig>) {
+  return {
+    name: '@sugarat/theme-plugin-provide-page-data',
+    async config(config: any, env) {
+      const vitepressConfig: SiteConfig = config.vitepress
+      const pagesData = await getArticles(cfg, vitepressConfig)
+        ...
+      vitepressConfig.site.themeConfig.blog.pagesData = pagesData
+    },
+  } as PluginOption
+}
+```
+这个函数返回了一个对象，该对象包含一个`name`和一个名为`config`的函数，可以从 vite 的 [plugin](https://vite.dev/guide/api-plugin.html#config) 手册中找到它们的定义，name 是插件的名称，config 是用来更改 vite 构建时期 config 参数的回调函数。
+
+我们可以在 config 回调函数中添加一个 conlose.log 看看这里的参数到底是什么：
+```js
+provide data config:  {
+  root: '/home/annya/src/sugar-blog/packages/theme/docs',
+  base: '/',
+  cacheDir: '/home/annya/src/sugar-blog/packages/theme/docs/.vitepress/cache',
+  plugins: [
+    {
+        name: 'vitepress',
+        ...
+    },
+    {
+        name: '@sugarat/theme-plugin-provide-page-data',
+        config: [AsyncFunction: config]
+    }
+    ...
+  ]
+  ...
+```
+这是个很大的对象，里边包含了 vite 中的很多信息，就比如项目中引入的所有 plugins ，其中就包含了上面自定义的 `providePageData`。
+
+值得注意的是，vitepress 也是作为一个 vite plugin 添加进项目中的，所以我们实际上可以通过这里的 config 回调参数找到 vitepress 内部的一些参数，这个参数的定义可以从 vitepress [源码](https://github.com/vuejs/vitepress/blob/c61775a54f1742a181dd685d92dc29bd60de6440/src/node/siteConfig.ts#L211) 中看到，它叫 `SiteConfig`，它里面就包含了我们感兴趣的内容：`pages`，这个属性是 vitepress 在解析项目中所有 markdown 文件是写入的，在上面的 console.log 中也可以看到：
+```js
+...
+    pages: [
+      'about.md',
+      'changelog.md',
+      'config/Independent.md',
+      'config/component.md',
+      'config/frontmatter.md',
+      'config/global.md',
+      'config/inline-matter.md',
+      'config/style.md',
+      'en/config/Independent.md',
+      'en/config/component.md',
+      'en/config/frontmatter.md',
+      'en/config/global.md',
+      'en/config/inline-matter.md',
+      'en/config/style.md',
+      'en/example/index.md',
+      'en/index.md',
+      'example/index.md',
+      'group.md',
+      'index.md',
+      'plugins/index.md',
+      'plugins/vitepress-plugin-announcement.md',
+      'recommend.md',
+      'sop/gh-pages.md',
+      'sop/quickStart.md',
+      'test/abc/hello/test.md',
+      'timeline.md',
+      'todo.md',
+      'work.md',
+      'test/abc/dynamic/1.0.0.md',
+      'test/abc/dynamic/2.0.0.md'
+    ],
+...
+```
+有了个信息，我们理论上就可以展示过往文章信息了，虽然这些只是文件名，但我们可以通过这些文件名构造出它们的路径名，然后在文件系统中打开它们。事实上 sugar-blog 就是这么做的。相关的逻辑在[这里](https://github.com/ATQQ/sugar-blog/blob/2afc7cd55b47b887a8c5ec0a0e36757239acfd09/packages/shared/src/vitepress.ts#L6)。
+
+现在我们知道文章信息是怎么来的了，那么这些信息是如何传给 vitepress 的呢？我们需要再回到`providePageData`函数中:
+```ts:line-numbers{8}
+export function providePageData(cfg: Partial<Theme.BlogConfig>) {
+  return {
+    name: '@sugarat/theme-plugin-provide-page-data',
+    async config(config: any, env) {
+      const vitepressConfig: SiteConfig = config.vitepress
+      const pagesData = await getArticles(cfg, vitepressConfig)
+        ...
+      vitepressConfig.site.themeConfig.blog.pagesData = pagesData
+    },
+  } as PluginOption
+}
+```
+第八行将文章信息传给了一串看起来很复杂的属性，分开来看其实并不复杂，它的前半部分`vitepressConfig.site.themeConfig`我们之前遇到过，它就是 vitepress 自己的 themeConfig 可以通过 `useData` 获取。而 blog.pagesData 则是 sugar-blog 的内部参数。我们可以在 vue-devtool 中查看到这些状态：
+![从vue-devtool插件中查看的sugar-blog状态](./sugar-blog-vue-devtool.png)
+
+现在我们知道主页的数据是从哪来的了。那么 sugar-blog 的主页本身是如何定义的呢？其实和上面介绍的`vitepress-blog-pure`没有区别，都是按vitepress中的标准做法定义了自己的 Theme：
+```js
+export const BlogTheme: Theme = {
+  ...DefaultTheme,
+  Layout: withConfigProvider(BlogApp),
+  enhanceApp(ctx) {
+    enhanceAppWithTabs(ctx.app as any)
+    DefaultTheme.enhanceApp(ctx)
+    ctx.app.component('UserWorksPage', UserWorksPage as any)
+  }
+}
+
+export * from './composables/config/index'
+
+export default BlogTheme
+```
+这里的 `BlogApp` 中包含了 vitepress 的 `Layout`，并使用 vue 的 provide 方法暴露了 theme-config 以及其他的一些状态。
+
