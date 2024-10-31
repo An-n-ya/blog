@@ -1,10 +1,19 @@
 import { defineConfig } from 'vitepress'
+import { Annya } from './theme/index.mts'
+import { getPosts } from './theme/plugins/post_data'
+
+const posts: Annya.Post[] = []
+
+
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
     title: "Annya's Writeups",
     description: "Coding is fun",
     base: "/",
+    vite: {
+        plugins: [getPosts()]
+    },
     themeConfig: {
         // https://vitepress.dev/reference/default-theme-config
         nav: [
@@ -25,6 +34,14 @@ export default defineConfig({
             { icon: 'github', link: 'https://github.com/An-n-ya' }
         ],
 
-        lastUpdated: true,
+        lastUpdated: {
+            text: "更新于"
+        },
+        lastUpdatedText: "更新于",
+
+
+        annya: {
+            posts
+        }
     }
 })

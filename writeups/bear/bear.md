@@ -1,11 +1,14 @@
 ---
 layout: doc
 outline: deep
+public: true
 ---
 
 # Bear 工作原理
 
-[Bear](https://github.com/rizsotto/Bear?tab=readme-ov-file) 是用来生成`compilation database`的工具，这个 `compilation database` 是什么，我们为何需要它呢？
+在这篇文章中，我们将深入探讨 Bear 的工作原理以及它在构建系统中的关键角色。Bear 是一种生成编译数据库的工具，能自动化创建 compile_commands.json 文件，从而让 Clang 等现代编译工具获得必要的编译信息，以便进行代码分析、自动补全和其他高级功能。通过捕获并记录项目编译的所有指令，Bear 极大地简化了开发过程，使 Clang 能更好地理解复杂的项目结构和依赖关系。本篇文章将涵盖 Bear 的背景、实现细节以及它在不同平台下的应用场景，帮助您更好地理解和使用 Bear。
+
+<!-- intro -->
 
 ## Compilation Database
 
@@ -432,6 +435,17 @@ report方法的调用链为`wr::Command::execute` -> `wr::EventReporter::report_
 wrapper中有自己的gRPC Client与intercept 的gRPC Server交换信息。
 
 
+## Bear 的架构分析
+前面我们只是分析了 Bear 是如何实现的，但我们还没有讨论 Bear 为什么会这么设计、这样设计的优缺点是什么这样的问题，我们学习开源项目不是简单地分析下执行流程就完事的，我们还需要知道分析项目架构的优缺点，这才是学习开源项目的重点。
+
+现在我们不看源码，回想下 Bear 系统究竟做了写什么
+
+
+### 为什么要这么设计呢
+既然 Bear 只是构建了一个个启动命令，为什么还要整这么麻烦呢？
+有以下几点：
+- Bear 是一个跨平台程序
+- Bear 高度可配置，比如 reporter 就不必是 wrapper ，只要能生成`compile_commands.events.json`，什么reporter都可以
 
 ## 参考资料
 - [Compilation databases for Clang-based tools](https://eli.thegreenplace.net/2014/05/21/compilation-databases-for-clang-based-tools)

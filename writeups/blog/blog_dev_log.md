@@ -1,12 +1,16 @@
 ---
 layout: doc
 outline: deep
+public: true
 ---
 
 # 博客开发日志
 
-本系列文章会记录本博客的开发日志以及相关的博客开发相关的内容。
-vitepress 项目主要是用作项目的文档网站，它对个人博客的支持并不是开箱即用的，你可能需要使用一些第三方 theme 才能得到一个基本的博客网站的结构。一个基本的博客一般包括以下结构：
+在本系列文章中，我们将记录开发个人博客的全过程，特别是如何在 VitePress 基础上实现博客功能。VitePress 是一个轻量级文档生成工具，虽然具备出色的灵活性，但在博客的常用功能上并未提供开箱即用的支持。因此，我们将探索如何运用第三方主题和插件，定制出一个包含主页、归档、标签、评论等模块的完整博客。本文将逐步解构这一过程，分享如何通过配置和插件扩展 VitePress 的功能，使其适配个人博客的需求。
+
+<!-- intro -->
+
+一个基本的博客一般包括以下结构：
 
 - 主页（一般是按时间展示过往文档）
 - 归档（按标签分类、按时间/阅读量排序）
@@ -90,8 +94,7 @@ export default defineConfig({
         },
 ...
 ```
-14 行调用了一个 async 函数 `getPosts`。这个函数返回的对象保存在`themeConfig.posts`中，根据 [vitepress文档](
-) 中关于 useState 的说明，这个 posts 可以通过 `useState().theme.value.posts` 访问到，`getPosts`函数中会创建关于项目中所有文章的元信息以便在运行时访问，这个信息对于展示过往文章列表尤其重要。`ghetPosts` 函数的实现如下：
+14 行调用了一个 async 函数 `getPosts`。这个函数返回的对象保存在`themeConfig.posts`中，根据 [vitepress文档](https://vitepress.dev/reference/runtime-api#usedata) 中关于 useData 的说明，这个 posts 可以通过 `useData().theme.value.posts` 访问到，`getPosts`函数中会创建关于项目中所有文章的元信息以便在运行时访问，这个信息对于展示过往文章列表尤其重要。`ghetPosts` 函数的实现如下：
 ```js:line-numbers{10}
 import { globby } from 'globby'
 import matter from 'gray-matter'
@@ -358,3 +361,9 @@ export default BlogTheme
 ```
 这里的 `BlogApp` 中包含了 vitepress 的 `Layout`，并使用 vue 的 provide 方法暴露了 theme-config 以及其他的一些状态。
 
+## 我的选择
+vitepress-blog-pure 的做法简单直接，不过它额外引入了两个依赖`globby`和`gray-matter`，它引入数据的方式是直接在vitepress的config.ts中加入一个异步函数。
+
+而sugar-blog的做法看起来更复杂，它使用了vitepress内部的参数用来寻找项目中所有的markdown文件，因此没有引入额外的依赖。而且它引入数据的方式是通过vite插件。
+
+由于我打算长期更新本博客，我认为sugar-blog的做法更适合我，因为它可以很方便的集成功能（以插件的方式），插入新功能的自由度更大，所以本博客会以类似sugar-blog那样用插件的方式添加扩展功能。
