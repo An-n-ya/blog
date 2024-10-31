@@ -196,16 +196,16 @@ const posts = theme.value.posts.slice(${pageSize * (i - 1)},${pageSize * i})
 
 sugar-blog 是 [monorepo](https://www.wikiwand.com/en/articles/Monorepo) 结构，它由若干功能独立的模块组成，所有的模块都放在一个 git 仓库下。具体来说，它包含了以下内容：
 
-* [blogpress](./packages/blogpress/)：博客内容本身
-* [@sugarat/theme](./packages/theme/)：博客分离出的通用 `VitePress` 主题
-* [@sugarat/theme-shared](./packages/shared/)：`VitePress` 主题相关的工具方法
-* [@sugarat/create-theme](./packages/create-theme/)：用于快速创建和作者一样风格的博客
+* [blogpress](https://github.com/ATQQ/sugar-blog/tree/master/packages/blogpress/)：博客内容本身
+* [@sugarat/theme](https://github.com/ATQQ/sugar-blog/tree/master/packages/theme/)：博客分离出的通用 `VitePress` 主题
+* [@sugarat/theme-shared](https://github.com/ATQQ/sugar-blog/tree/master/packages/shared/)：`VitePress` 主题相关的工具方法
+* [@sugarat/create-theme](https://github.com/ATQQ/sugar-blog/tree/master/packages/create-theme/)：用于快速创建和作者一样风格的博客
 * VitePress 插件相关：
-  * [vitepress-plugin-pagefind](./packages/vitepress-plugin-pagefind/)：基于 pagefind 实现的 `VitePress` 离线全文搜索支持插件
-  * [vitepress-plugin-rss](./packages/vitepress-plugin-rss/)：基于 feed 实现的 `VitePress` RSS 支持插件
-  * [vitepress-plugin-51la](./packages/vitepress-plugin-51la/)：为 `VitePress` 站点引入 [51.la](https://v6.51.la/) 的网站数据统计能力。
-  * [vitepress-plugin-announcement](./packages/vitepress-plugin-announcement/)：为 `VitePress` 创建一个全局公告窗口。
-  * [vitepress-plugin-slot-inject-template](./template/vitepress-plugin-slot-inject-template/)：`VitePress` 插件开发模板。
+  * [vitepress-plugin-pagefind](https://github.com/ATQQ/sugar-blog/tree/master/packages/vitepress-plugin-pagefind/)：基于 pagefind 实现的 `VitePress` 离线全文搜索支持插件
+  * [vitepress-plugin-rss](https://github.com/ATQQ/sugar-blog/tree/master/packages/vitepress-plugin-rss/)：基于 feed 实现的 `VitePress` RSS 支持插件
+  * [vitepress-plugin-51la](https://github.com/ATQQ/sugar-blog/tree/master/packages/vitepress-plugin-51la/)：为 `VitePress` 站点引入 [51.la](https://v6.51.la/) 的网站数据统计能力。
+  * [vitepress-plugin-announcement](https://github.com/ATQQ/sugar-blog/tree/master/packages/vitepress-plugin-announcement/)：为 `VitePress` 创建一个全局公告窗口。
+  * [vitepress-plugin-slot-inject-template](https://github.com/ATQQ/sugar-blog/tree/master/template/vitepress-plugin-slot-inject-template/)：`VitePress` 插件开发模板。
 
 第一个目录 `blogpress` 是作者自己的博客目录，我们不用去看里边的内容。
 
