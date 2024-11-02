@@ -19,7 +19,7 @@ public: true
 下面我按这些结构组织我是如何实现这些结构的。
 
 ## 博客主页
-vitepress 原生的主页只支持自定义 hero 和 feature ，这些结构往往是开源项目的主页所需的，个人博客的主页往往展示过往文章。好在 vitepress 给了用户足够多的自由度自定义每个页面，在这里我们先看看社区中是如何自定义vitepress主页的。
+vitepress 原生的主页只支持自定义 hero 和 feature，这些结构往往是开源项目的主页所需的，个人博客的主页往往展示过往文章。好在 vitepress 给了用户足够多的自由度自定义每个页面，在这里我们先看看社区中是如何自定义 vitepress 主页的。
 
 我主要看了这个[awesome vitepress list](https://github.com/logicspark/awesome-vitepress-v1)，里边这两个 theme 是我比较喜欢的：
 
@@ -31,7 +31,7 @@ vitepress 原生的主页只支持自定义 hero 和 feature ，这些结构往�
 ### vitepress-blog-pure
 [vitepress-blog-pure](https://ti.bi/)的主页长这样：
 
-![vitepress-blog-pure的主页](./vitepress-blog-pure-home.png)
+![vitepress-blog-pure 的主页](./vitepress-blog-pure-home.png)
 
 导航栏基本没变，主页主体变成了过往文章，主页最后还有一个分页器。
 
@@ -69,7 +69,7 @@ vitepress 原生的主页只支持自定义 hero 和 feature ，这些结构往�
 ├── tsconfig.json
 └── yarn.lock
 ```
-首先会发现整个项目中没有`index.md`，这个文件应该是默认的 vitepress 主页才对，其实`index.md`是在构建的过程中生成的，具体的逻辑在`.vitepress/config.ts`的第14行：
+首先会发现整个项目中没有`index.md`，这个文件应该是默认的 vitepress 主页才对，其实`index.md`是在构建的过程中生成的，具体的逻辑在`.vitepress/config.ts`的第 14 行：
 ```js:line-numbers{14}
 import { defineConfig } from 'vitepress'
 import { getPosts } from './theme/serverUtils'
@@ -94,7 +94,7 @@ export default defineConfig({
         },
 ...
 ```
-14 行调用了一个 async 函数 `getPosts`。这个函数返回的对象保存在`themeConfig.posts`中，根据 [vitepress文档](https://vitepress.dev/reference/runtime-api#usedata) 中关于 useData 的说明，这个 posts 可以通过 `useData().theme.value.posts` 访问到，`getPosts`函数中会创建关于项目中所有文章的元信息以便在运行时访问，这个信息对于展示过往文章列表尤其重要。`ghetPosts` 函数的实现如下：
+14 行调用了一个 async 函数 `getPosts`。这个函数返回的对象保存在`themeConfig.posts`中，根据 [vitepress 文档](https://vitepress.dev/reference/runtime-api#usedata) 中关于 useData 的说明，这个 posts 可以通过 `useData().theme.value.posts` 访问到，`getPosts`函数中会创建关于项目中所有文章的元信息以便在运行时访问，这个信息对于展示过往文章列表尤其重要。`ghetPosts` 函数的实现如下：
 ```js:line-numbers{10}
 import { globby } from 'globby'
 import matter from 'gray-matter'
@@ -104,7 +104,7 @@ import { resolve } from 'path'
 async function getPosts(pageSize: number) {
     let paths = await globby(['posts/**.md'])
 
-    //生成分页页面markdown
+    //生成分页页面 markdown
     await generatePaginationPages(paths.length, pageSize)
 
     let posts = await Promise.all(
@@ -122,7 +122,7 @@ async function getPosts(pageSize: number) {
     return posts
 }
 ```
-这里用到了两个第三方包：`globby`和`gray-matter`，前者用来遍历文件目录（寻找目录下的 markdown 文件），后者用来处理 markdown 文件的 frontmatter 。这段代码除第10行以外的作用就是遍历当前目录，查找到所有的markdown文件，并将这些文件的目录信息、时间信息、frontmatter信息记录在posts变量中返回给调用者。
+这里用到了两个第三方包：`globby`和`gray-matter`，前者用来遍历文件目录（寻找目录下的 markdown 文件），后者用来处理 markdown 文件的 frontmatter。这段代码除第 10 行以外的作用就是遍历当前目录，查找到所有的 markdown 文件，并将这些文件的目录信息、时间信息、frontmatter 信息记录在 posts 变量中返回给调用者。
 
 而第 10 行代码的作用就是生成上文中提到的`index.md`文件。
 
@@ -190,7 +190,7 @@ const posts = theme.value.posts.slice(${pageSize * (i - 1)},${pageSize * i})
 ### sugar-blog
 [sugar-blog](https://sugarat.top/)的主页是这样子的：
 
-![sugar-blog的主页](./sugar-blog-home.png)
+![sugar-blog 的主页](./sugar-blog-home.png)
 
 对我来说元素过于丰富，不过正因为它有很多元素，这个 blog 是用来学习如何扩展 vitepress 的好例子。
 
@@ -217,7 +217,7 @@ const blogTheme = getThemeConfig({
     ...
 });
 ```
-2. 根据 vitepress 文档中关于[自定义theme](https://vitepress.dev/guide/custom-theme#consuming-a-custom-theme) 的说明，将该 theme 对象传入 vitepress 的 extends 属性：
+2. 根据 vitepress 文档中关于[自定义 theme](https://vitepress.dev/guide/custom-theme#consuming-a-custom-theme) 的说明，将该 theme 对象传入 vitepress 的 extends 属性：
 ```ts:line-numbers{6}
 // .vitepress/config.ts
 import baseConfig from 'awesome-vitepress-theme/config'
@@ -244,9 +244,9 @@ export function getThemeConfig(cfg: Partial<Theme.BlogConfig> = {}) {
     vite: {}
   }
 
-  // 获取要加载的vite插件
+  // 获取要加载的 vite 插件
   const vitePlugins = getVitePlugins(cfg)
-  // 注册Vite插件
+  // 注册 Vite 插件
   registerVitePlugins(extraVPConfig, vitePlugins)
 ...
 ```
@@ -285,7 +285,7 @@ provide data config:  {
   ]
   ...
 ```
-这是个很大的对象，里边包含了 vite 中的很多信息，就比如项目中引入的所有 plugins ，其中就包含了上面自定义的 `providePageData`。
+这是个很大的对象，里边包含了 vite 中的很多信息，就比如项目中引入的所有 plugins，其中就包含了上面自定义的 `providePageData`。
 
 值得注意的是，vitepress 也是作为一个 vite plugin 添加进项目中的，所以我们实际上可以通过这里的 config 回调参数找到 vitepress 内部的一些参数，这个参数的定义可以从 vitepress [源码](https://github.com/vuejs/vitepress/blob/c61775a54f1742a181dd685d92dc29bd60de6440/src/node/siteConfig.ts#L211) 中看到，它叫 `SiteConfig`，它里面就包含了我们感兴趣的内容：`pages`，这个属性是 vitepress 在解析项目中所有 markdown 文件是写入的，在上面的 console.log 中也可以看到：
 ```js
@@ -326,7 +326,7 @@ provide data config:  {
 ```
 有了个信息，我们理论上就可以展示过往文章信息了，虽然这些只是文件名，但我们可以通过这些文件名构造出它们的路径名，然后在文件系统中打开它们。事实上 sugar-blog 就是这么做的。相关的逻辑在[这里](https://github.com/ATQQ/sugar-blog/blob/2afc7cd55b47b887a8c5ec0a0e36757239acfd09/packages/shared/src/vitepress.ts#L6)。
 
-现在我们知道文章信息是怎么来的了，那么这些信息是如何传给 vitepress 的呢？我们需要再回到`providePageData`函数中:
+现在我们知道文章信息是怎么来的了，那么这些信息是如何传给 vitepress 的呢？我们需要再回到`providePageData`函数中：
 ```ts:line-numbers{8}
 export function providePageData(cfg: Partial<Theme.BlogConfig>) {
   return {
@@ -341,9 +341,9 @@ export function providePageData(cfg: Partial<Theme.BlogConfig>) {
 }
 ```
 第八行将文章信息传给了一串看起来很复杂的属性，分开来看其实并不复杂，它的前半部分`vitepressConfig.site.themeConfig`我们之前遇到过，它就是 vitepress 自己的 themeConfig 可以通过 `useData` 获取。而 blog.pagesData 则是 sugar-blog 的内部参数。我们可以在 vue-devtool 中查看到这些状态：
-![从vue-devtool插件中查看的sugar-blog状态](./sugar-blog-vue-devtool.png)
+![从 vue-devtool 插件中查看的 sugar-blog 状态](./sugar-blog-vue-devtool.png)
 
-现在我们知道主页的数据是从哪来的了。那么 sugar-blog 的主页本身是如何定义的呢？其实和上面介绍的`vitepress-blog-pure`没有区别，都是按vitepress中的标准做法定义了自己的 Theme：
+现在我们知道主页的数据是从哪来的了。那么 sugar-blog 的主页本身是如何定义的呢？其实和上面介绍的`vitepress-blog-pure`没有区别，都是按 vitepress 中的标准做法定义了自己的 Theme：
 ```js
 export const BlogTheme: Theme = {
   ...DefaultTheme,
@@ -362,8 +362,8 @@ export default BlogTheme
 这里的 `BlogApp` 中包含了 vitepress 的 `Layout`，并使用 vue 的 provide 方法暴露了 theme-config 以及其他的一些状态。
 
 ## 我的选择
-vitepress-blog-pure 的做法简单直接，不过它额外引入了两个依赖`globby`和`gray-matter`，它引入数据的方式是直接在vitepress的config.ts中加入一个异步函数。
+vitepress-blog-pure 的做法简单直接，不过它额外引入了两个依赖`globby`和`gray-matter`，它引入数据的方式是直接在 vitepress 的 config.ts 中加入一个异步函数。
 
-而sugar-blog的做法看起来更复杂，它使用了vitepress内部的参数用来寻找项目中所有的markdown文件，因此没有引入额外的依赖。而且它引入数据的方式是通过vite插件。
+而 sugar-blog 的做法看起来更复杂，它使用了 vitepress 内部的参数用来寻找项目中所有的 markdown 文件，因此没有引入额外的依赖。而且它引入数据的方式是通过 vite 插件。
 
-由于我打算长期更新本博客，我认为sugar-blog的做法更适合我，因为它可以很方便的集成功能（以插件的方式），插入新功能的自由度更大，所以本博客会以类似sugar-blog那样用插件的方式添加扩展功能。
+由于我打算长期更新本博客，我认为 sugar-blog 的做法更适合我，因为它可以很方便的集成功能（以插件的方式），插入新功能的自由度更大，所以本博客会以类似 sugar-blog 那样用插件的方式添加扩展功能。
