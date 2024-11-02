@@ -12,17 +12,19 @@ public: true
 
 ## Compilation Database
 
-[Compilation Database](https://clang.llvm.org/docs/JSONCompilationDatabase.html) 是 Clang 项目中的一个规范，该规范规定了一种 JSON 文件格式，这个文件包含了编译系统编译整个项目所必须的信息，具体包含了哪些信息呢？该 JSON 文件由一个 JSON 数组构成，数组中每个 entry 对应着项目中的一个文件，每个entry 包含以下信息：
+[Compilation Database](https://clang.llvm.org/docs/JSONCompilationDatabase.html) 是 Clang 项目中的一项规范，定义了一种 JSON 文件格式，用于存储项目编译所需的所有关键信息。这个 JSON 文件包含一个数组，其中的每个元素代表项目中的一个源文件，包含以下信息：
 
-- 文件路径
-- 文件名
-- 编译指令
-- 编译参数
-- 编译输出文件名
+-    文件路径
+-    文件名
+-    编译指令
+-    编译参数
+-    编译输出文件名
 
-这些信息对编译系统十分重要，通过这些信息，编译系统可以知道每个文件该如何编译、系统的依赖关系。可问题是编译系统不应该直接由 `make` 或 `CMake` 这样的工具调用么，为什么还额外需要一个 JSON 文件。原因在于 `make` 这样的工具是调用编译器编译出目标文件的，而现代编译器不止提供了编译成目标文件的功能，现代编译器还额外提供了许许多多代码分析功能，比如：代码格式化、调用链分析、符号重命名等等。使用这些功能的前提是，编译系统必须了解每个文件是如何编译的。
+这些数据对编译系统至关重要，它让系统了解如何正确编译每个文件及其依赖关系。但我们可能会问，为什么不直接由像 Make 或 CMake 这样的构建工具处理编译，而还需要一个 JSON 文件？
 
-就比如说，有一个 `gtk` 项目，在 makefile 中我们需要指明必要的编译器 flags , 比如`-lgtk`，如果我们想用 clangd 代码高亮该项目，clangd 就必须得知道这个编译器flags，这样它才能分析到具体的 library，从而确定每个变量的定义。而 compilation database 就是 clang 规定的用来向编译器传达信息的文件格式。
+原因在于，Make 等工具的主要功能是调用编译器生成目标文件，而现代编译器（如 Clang）不仅支持编译，还提供了许多代码分析功能，比如代码格式化、调用链分析和符号重命名等。使用这些功能的前提是编译器需要知道每个文件的具体编译方式，这正是 Compilation Database 的用武之地。
+
+举个例子，对于一个使用 GTK 的项目，Makefile 中需要指定编译器的相关参数，比如 -lgtk。如果我们想使用 clangd 进行代码高亮，clangd 就必须知道这些编译参数，这样它才能找到库文件并正确解析每个变量的定义。Compilation Database 正是为此而设计的规范，用于将这些编译信息传递给编译器，从而支持更全面的代码分析功能。
 
 下面来看一些具体的例子来体会 Compilation Database 的作用
 
@@ -33,11 +35,11 @@ public: true
 <<< ./div.c{c:line-numbers{7}}
 :::
 
-注意到第 7 行有一个除零错误，编译器在编译期就应该知道变量 z 在第七行时等于 0，所以像 `clang-check` 这样的静态分析软件应该会对这段程序有所反映。但在我们执行了 `clang-check -analyze div.c --` 之后并没有任何警告。
+注意到代码第 7 行有一个除零错误，理论上编译器在编译期就应该知道变量 z 在此处为 0，因此类似 `clang-check` 这样的静态分析工具应当发出警告。然而，执行 `clang-check -analyze div.c --` 之后并未收到任何警告。
 ::: tip
-在当前目录下没有 Compilation Database 的情况下使用 `cargo-check` 必须加上参数 `--` 。
+如果当前目录下没有 Compilation Database，使用 `cargo-check` 必须加上参数 `--` 。
 :::
-没有警告的原因是默认情况下 `FOO` 变量未定义，在编译的“宏展开阶段”中，第 7 行代码被忽略了，所以 `clang-check` 没有抱怨这段代码，我们可以加上 FOO 的定义试试：
+没有警告的原因是默认情况下 `FOO` 宏未定义，在编译的“宏展开阶段”中，第 7 行代码被忽略了，所以 `clang-check` 并未检测到除零错误。为验证这一点，尝试加上 FOO 的定义：
 ```sh 
 > clang-check -analyze div.c -- -DFOO
 /home/annya/blog/writeups/bear/div.c:7:16: warning: Division by zero [core.DivideZero]
@@ -48,11 +50,11 @@ public: true
                      ~~~~^~~~~
 1 warning generated.
 ```
-这时候就有警告信息了。如果我希望编译系统检验上述两种情况，就必须让编译系统知道对应的 flags。这时候就可以用到 Compilation Database 了。我们定义如下文件`compile_commands.json`:
+这时候就有警告信息了。如果我希望编译系统检验上述两种情况，就必须让编译系统知道知道正确的编译参数，这正是 Compilation Database 的用途所在。按照 Compilation Database 的规范创建如下文件`compile_commands.json`:
 
 <<< ./compile_commands.json{json}
 
-再次运行 `clang-check` ，这次不用加最后的 `--`：
+再次运行 `clang-check` （这次不用加最后的 `--`），就得到了期望的警告：
 
 ```sh 
 > clang-check -analyze div.c
@@ -65,19 +67,16 @@ div.c:2:26: note: expanded from macro 'DODIV'
 1 warning generated.
 ```
 
-至此我们知道了 Compilation Database 的作用，但这个文件如何生成呢？需要自己敲出来么？
+至此我们知道了 Compilation Database 的作用，但问题是这个文件该如何生成，每次都需要大费周章的自己敲出来么？
 
 ### 生成 Compilation Database
-手敲当然可以，但肯定是不现实的。像 `CMake` 这样的工具可以自动生成 `compile_commands.json` 文件，而 `GNUMake` 这样的老古董是不能自动生成 Compilation Database 的，这时候我们就可以依靠 Bear 工具来自动生成编译数据库。
+手敲当然可以，但肯定是不现实的。像 `CMake` 这样的工具可以自动生成 `compile_commands.json` 文件，而 `GNUMake` 这样的老古董是不能自动生成 Compilation Database 的，这时候就可以依靠 Bear 工具来自动生成这个文件。
 Bear 的使用方法很直接，如果原来的编译指令是 `make` , 那么只需要执行 `bear -- make` 便可以生成 `compile_commands.json` 了。
 
-::: warning
-TODO: 介绍 Compliation Database 在代码生成、依赖图等方面对编译系统的作用
-:::
-
 ## Bear 的原理
-Bear 的思路是这样的，既然 makefile 已经知道该如何编译整个项目了，那么 Bear 只需要**截取** makefile 调用的每一条编译指令，通过分析这些编译指令就可以构建出 `compile_commands.json` 了。
-问题是，该如何**截取**呢？在 Linux 系统中可以使用 `LD_PRELOAD` 环境变量加载 bear 的动态库，在这个动态库中 `execvp` 这样的运行其他程序（比如运行编译器 gcc）的系统函数会被“重载”，Bear 会在自己的动态库中记录调用过的所有编译指令，并且继续调用原始的 execvp 指令，在记录了所有的编译指令后，Bear 就掌握了充分的信息来构建 `compile_commands` 。
+Bear 的思路是这样的，既然 makefile 已经知道该如何编译整个项目了，那么 Bear 只需要**截取** makefile 调用的每一条编译指令，通过分析这些编译指令构建出 `compile_commands.json` 。
+问题的关键在于如何**截取**。Linux 系统提供了这样的截取机制，只需要将环境变量 `LD_PRELOAD` 指定为自定义库，在该库中定义自己要重载的动态库函数功能，这样当被截取程序运行到被重载的动态库函数的时候会执行自定义库中的函数。Bear 在自己的库中“重载”了一切可以运行其他程序的系统调用，比如`exec`系列函数，要重载这些函数的原因是，Make 构建工具的本质功能就是调用 GCC/Clang 这样的编译工具，而 Compliation Database 感兴趣的就是构建工具是如何调用编译工具的。
+Bear 在自己的重载函数中将截获的编译指令记录到自己的数据库，然后继续调用原始的 exec 指令，这样 Bear 就理论上掌握了充分的信息来构建 `compile_commands.json` 。
 
 通过下面的这段示例代码来了解这个过程具体是如何运作的：
 
@@ -143,7 +142,7 @@ bear citnames: 创建 citnames 进程
 - `CMakeLists.txt`: 根目录下的 CMake 文件
 
 进入到 Bear 项目根目录下的`CMakeLists.txt`，这个文件的头几行检查并安装了必要的第三方库，最重要的部分是[这里](https://github.com/rizsotto/Bear/blob/777954d4c2c1fc9053d885c28c9e15f903cc519a/CMakeLists.txt#L49-L90)，使用[`ExternalProject_Add`](https://cmake.org/cmake/help/latest/module/ExternalProject.html)命令构建 Bear 项目本身，`ExternalProject_Add`相当于额外执行了一次 cmake，本身是不受原先 cmake 指令里 flags 的影响的，所以我们在根目录下设置 cmake 的`-DCMAKE_EXPORT_COMPILE_COMMANDS`是不会影响到 BearSource 项目的。
-解决方案很简单就是在`ExternalProject_Add`指令中加上`-DCMAKE_EXPORT_COMPILE_COMMANDS`指令即可：
+解决方案很简单，就是在`ExternalProject_Add`指令中加上`-DCMAKE_EXPORT_COMPILE_COMMANDS`指令即可：
 :::code-group
 ```cmake [CMakeLists.txt]
 ExternalProject_Add(BearSource
@@ -205,7 +204,7 @@ Bear 在新建进程的时候会输出`Process Spawned`，从上面的输出信�
 - `wrapper`: 创建 wrapper 进程
 - `bear citnames`: 创建 citnames 进程
 
-下面我们从 Bear 的 main 函数开始看看这三个进程是如何创建的，以及`LD_PRELOAD`是如何被写入环境变量的。
+下面从 Bear 的 main 函数开始看这三个进程是如何创建的，以及`LD_PRELOAD`是如何被写入环境变量的。
 
 ### 从 `main` 函数开始
 Bear 的入口在[这里](https://github.com/rizsotto/Bear/blob/777954d4c2c1fc9053d885c28c9e15f903cc519a/source/bear/main.cc#L23-L25)，这个 main 函数调用了 libmain 里的 main 函数，如下：
@@ -430,9 +429,25 @@ report 方法的调用链为`wr::Command::execute` -> `wr::EventReporter::report
 ### libexec
 `source/intercept/source/report/libexec`这个文件夹中的内容会被编译成一个动态库，这个动态库的入口在[这里](https://github.com/rizsotto/Bear/blob/777954d4c2c1fc9053d885c28c9e15f903cc519a/source/intercept/source/report/libexec/lib.cc#L100-L115)，这里创建的全局变量`SESSION`是 libexec 自己的，这个类型有两个重要的成员`reporter`和`destination`，这里的 reporter 会被设置为默认值`/usr/local/lib/x86_64-linux-gnu/bear/wrapper`，而 desitination 会被设置为 gRPC server。
 
-当 libexec 截获到指令时，会使用全局变量`SESSION`构建一条指令，指令的 path 是就是 reporter，也就是`wrapper`，截获到的指令会作为参数传入给 wrapper。
+当 libexec 截获到指令时(通常是exec，fork这样的指令系统调用)，会使用全局变量`SESSION`构建一条指令，指令的 path 是就是 reporter，也就是`wrapper`，截获到的指令会作为参数传入给 wrapper。
 
 wrapper 中有自己的 gRPC Client 与 intercept 的 gRPC Server 交换信息。
+
+### wrapper 原理
+上一节的libexec是通过LD_PRELOAD实现的截获，这种方式截获编译指令有以下缺点：
+- 静态编译的库没有办法截获
+- 多进程的情况下有问题
+- Windows系统下没有LD_PRELOAD机制
+
+所以 Bear 提供了另外一种机制，即使用 wrapper 截获指令，大体思路如下，Bear会把一些常用的编译指令，比如gcc、ld等这样的指令重定向到wrapper。具体来说在Linux下，Bear会创建一个文件夹，这个文件夹一般位于`/usr/local/lib/x86_64-linux-gnu/bear/wrapper.d`，这个文件夹下包含以下内容：
+```sh
+❯ ls -a /usr/local/lib/x86_64-linux-gnu/bear/wrapper.d
+total 0
+lrwxrwxrwx 1 root root 10 Oct 22 21:29 ar -> ../wrapper
+lrwxrwxrwx 1 root root 10 Oct 22 21:29 as -> ../wrapper
+...
+```
+这些常用的编译指令都被链接到wrapper。在Bear调用 make 这样的指令时，Bear会将wrapper.d目录扩展到环境变量PATH，这样就能保证make调用的编译指令（比如gcc）会落入到Bear的控制中。
 
 
 ## Bear 的架构分析
