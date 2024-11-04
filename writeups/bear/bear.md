@@ -429,17 +429,17 @@ report 方法的调用链为`wr::Command::execute` -> `wr::EventReporter::report
 ### libexec
 `source/intercept/source/report/libexec`这个文件夹中的内容会被编译成一个动态库，这个动态库的入口在[这里](https://github.com/rizsotto/Bear/blob/777954d4c2c1fc9053d885c28c9e15f903cc519a/source/intercept/source/report/libexec/lib.cc#L100-L115)，这里创建的全局变量`SESSION`是 libexec 自己的，这个类型有两个重要的成员`reporter`和`destination`，这里的 reporter 会被设置为默认值`/usr/local/lib/x86_64-linux-gnu/bear/wrapper`，而 desitination 会被设置为 gRPC server。
 
-当 libexec 截获到指令时(通常是exec，fork这样的指令系统调用)，会使用全局变量`SESSION`构建一条指令，指令的 path 是就是 reporter，也就是`wrapper`，截获到的指令会作为参数传入给 wrapper。
+当 libexec 截获到指令时 (通常是 exec，fork 这样的指令系统调用)，会使用全局变量`SESSION`构建一条指令，指令的 path 是就是 reporter，也就是`wrapper`，截获到的指令会作为参数传入给 wrapper。
 
 wrapper 中有自己的 gRPC Client 与 intercept 的 gRPC Server 交换信息。
 
 ### wrapper 原理
-上一节的libexec是通过LD_PRELOAD实现的截获，这种方式截获编译指令有以下缺点：
+上一节的 libexec 是通过 LD_PRELOAD 实现的截获，这种方式截获编译指令有以下缺点：
 - 静态编译的库没有办法截获
 - 多进程的情况下有问题
-- Windows系统下没有LD_PRELOAD机制
+- Windows 系统下没有 LD_PRELOAD 机制
 
-所以 Bear 提供了另外一种机制，即使用 wrapper 截获指令，大体思路如下，Bear会把一些常用的编译指令，比如gcc、ld等这样的指令重定向到wrapper。具体来说在Linux下，Bear会创建一个文件夹，这个文件夹一般位于`/usr/local/lib/x86_64-linux-gnu/bear/wrapper.d`，这个文件夹下包含以下内容：
+所以 Bear 提供了另外一种机制，即使用 wrapper 截获指令，大体思路如下，Bear 会把一些常用的编译指令，比如 gcc、ld 等这样的指令重定向到 wrapper。具体来说在 Linux 下，Bear 会创建一个文件夹，这个文件夹一般位于`/usr/local/lib/x86_64-linux-gnu/bear/wrapper.d`，这个文件夹下包含以下内容：
 ```sh
 ❯ ls -a /usr/local/lib/x86_64-linux-gnu/bear/wrapper.d
 total 0
@@ -447,7 +447,7 @@ lrwxrwxrwx 1 root root 10 Oct 22 21:29 ar -> ../wrapper
 lrwxrwxrwx 1 root root 10 Oct 22 21:29 as -> ../wrapper
 ...
 ```
-这些常用的编译指令都被链接到wrapper。在Bear调用 make 这样的指令时，Bear会将wrapper.d目录扩展到环境变量PATH，这样就能保证make调用的编译指令（比如gcc）会落入到Bear的控制中。
+这些常用的编译指令都被链接到 wrapper。在 Bear 调用 make 这样的指令时，Bear 会将 wrapper.d 目录扩展到环境变量 PATH，这样就能保证 make 调用的编译指令（比如 gcc）会落入到 Bear 的控制中。
 
 
 ## Bear 的架构分析
