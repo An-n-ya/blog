@@ -453,16 +453,22 @@ lrwxrwxrwx 1 root root 10 Oct 22 21:29 as -> ../wrapper
 ## Bear 的架构分析
 前面我们只是分析了 Bear 是如何实现的，但我们还没有讨论 Bear 为什么会这么设计、这样设计的优缺点是什么这样的问题，我们学习开源项目不是简单地分析下执行流程就完事的，我们还需要知道分析项目架构的优缺点，这才是学习开源项目的重点。
 
-现在我们不看源码，回想下 Bear 系统究竟做了写什么
+现在我们不看源码，回想下 Bear 系统究竟做了什么。
+Bear 有两种方式截获指令，一种是使用 LD_PRELOAD，一种是重定向常用的编译指令到 wrapper。无论是哪种截获方式，最终都是在用 wrapper 包裹一条条构建指令，wrapper 会记录这些构建指令并把它们通过 gRPC 的方式发送到 bear 的服务端，然后再持久化到本地的缓存文件`compile_commands.events.json`。最终使用 citnames 生成 Compilation Database。
 
 
 ### 为什么要这么设计呢
-既然 Bear 只是构建了一个个启动命令，为什么还要整这么麻烦呢？
-有以下几点：
-- Bear 是一个跨平台程序
-- Bear 高度可配置，比如 reporter 就不必是 wrapper，只要能生成`compile_commands.events.json`，什么 reporter 都可以
+既然 Bear 只是构建了一个个启动命令，为什么还要大费周章的构建 wrapper 呢？
+Bear 会遇到以下几点困难：
+
+- Bear 是一个跨平台程序，虽然 Linux 下可以使用 LD_PRELOAD 机制，但是 Windows 并不提供这样的机制。
+- 现代构建系统往往是支持多线程的，这样就会有多个进程同时往`compile_commands.events.json`中写入数据。
+- LD_PRELOAD 机制只适合动态链接
+
+而 wrapper 的出现很好的解决了这些问题，首先它是跨平台友好的，只要操作系统支持更改可执行文件路径，wrapper 就能使用。由于通信使用了 gRPC，因此自然支持多线程编译系统，不过在写入`compile_commands.events.json`的时候得加锁。
 
 ## 参考资料
 - [Compilation databases for Clang-based tools](https://eli.thegreenplace.net/2014/05/21/compilation-databases-for-clang-based-tools)
 - [JSON Compliation Database Format Sepecification](https://clang.llvm.org/docs/JSONCompilationDatabase.html)
+- [Bear roadmap](https://github.com/rizsotto/Bear/wiki/Roadmap)
 
