@@ -100,3 +100,8 @@ qemu-system-x86_64 -kernel /path/to/bzImage -initrd /path/to/rootfs.cpio -append
 
 上述指令应该能顺利启动我们的最小 Linux 系统，并可以在这个系统中执行最简单的命令了。
 
+
+## 小结
+通过这篇文章，我们知道了如何获得一个最小的可运行的 Linux 系统，掌握了该如何构建根文件系统。
+但问题是这个所谓的 Linux 系统是作为 initramfs 运行在内存中的，这意味着它有内存容量的限制，而且持久化操作也会很麻烦，无论丛哪方面来讲，这离一个真正“可用”的 Linux 系统还有点距离。
+下一篇文章[使用 BuildRoot 构建 Linux 系统](./从零构建linux系统镜像2)将介绍如何使用[buildroot](https://buildroot.org/)构建一个完整的 Linux 系统。
