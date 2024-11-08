@@ -36,7 +36,24 @@ make 指令运行完后可以在`output/images/`目录下找到编译的系统�
 
 就这么简单！
 
+另外，buildroot 还提供了很多调试指令，比如查看所有的 kconfig 变量，查看所有的被编译的包，查看编译时间图。
+使用如下指令就能看到编译时间图：
+```sh
+> make graph-build
+```
+在目录`output/graphs`下就能看到生成的图：
+![buildroot 编译时间图表](./build_root _graph_build.png)
+
+使用`make show-info`可以看到所有的包信息，可以在[这里](https://jsonhero.io/j/SJ19LivYBdSK)预览。
+
 但只是简单的使用这个工具并不是这篇文章的目的，我们还需要追问，buildroot 究竟帮我们做了哪些事情？buildroot 是如何做到有如此高的可配置性的？要回答这些问题，我们需要渗入到 BuildRoot 的源码。
 
 ## BuildRoot 源码分析
+BuildRoot 和上一篇文章中的最小 Linux 系统的构建过程类似，本质上它就是创建了一个根文件系统，设置了一些最基本的 Linux 配置，并往这个文件系统中安装了必要的软件。
 
+但问题是：
+- 哪些软件是必要的？这是谁定义的？有相关的规定么？
+- 究竟需要哪些必要的配置
+- 怎么保证编译出来的软件不依赖本机的工具链
+
+为了回答这些问题，我们从零开始写一个类似于 BuildRoot 的构建系统（当然功能要简单的多，但麻雀虽小，五脏俱全），在构建的过程中试着回答上述问题。互联网上有一个很好的学习资料可供参考，那就是[LinuxFromScratch(LFS)](https://www.linuxfromscratch.org/)，这个站点提供了一本教你如何一步一步构建自己的 Linux 系统的小册子。在下一篇文章中，我们将以 LFS 为线索，试着构建一个类似于 BuildRoot 的构建系统。
